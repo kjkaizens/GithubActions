@@ -1,0 +1,66 @@
+name: Continuous Delivery
+
+on: [push, pull_request]
+
+env:
+  ENDPOINT: https://weatherapp.hopefully.works/api
+  SOURCE_DIR: build/
+  AWS_REGION: eu-central-1
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        node-version: [12.x, 13.x]
+    steps:
+      - uses: actions/checkout@v1
+      - name: Use node version ${{ matrix.node-version }}
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Build
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npm test
+
+  staging:
+    if: ${{ github.ref != 'refs/heads/master' }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 13.x
+      - run: npm ci
+      - run: npm run build
+      - name: deploy to AWS S3 (staging)
+        uses: mrako/s3-sync-action@7ed8b11
+        with:
+          args: --acl public-read --follow-symlinks --delete
+        env:
+          AWS_S3_BUCKET: github-actions-example-staging
+
+  release:
+    if: ${{ github.ref == 'refs/heads/master' }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 13.x
+      - run: npm ci
+      - run: npm run build
+      - name: deploy to AWS S3 (production)
+        uses: mrako/s3-sync-action@7ed8b11
+        with:
+          args: --acl public-read --follow-symlinks --delete
+        env:
+          AWS_S3_BUCKET: github-actions-example-master
